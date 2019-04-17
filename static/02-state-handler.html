@@ -9,6 +9,7 @@
 
     <!-- colyseus.js client (npm run bundle-colyseus-client) -->
     <script type="text/javascript" src="colyseus.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.8.0/p5.js"></script>
 
     <style type="text/css">
       .player {
@@ -24,6 +25,7 @@
 
   </head>
   <body>
+    <!--
     <h1>
       <a href="https://github.com/gamestdio/colyseus-examples"><img src="https://rawgit.com/gamestdio/colyseus/master/media/header.png" height="100" alt="colyseus" /></a>
     </h1>
@@ -37,6 +39,7 @@
     <br />
     <button onclick="left()">left</button>
     <button onclick="right()">right</button>
+    -->
 
     <script>
       var host = window.document.location.host.replace(/:.*/, '');
@@ -44,65 +47,98 @@
       var client = new Colyseus.Client(location.protocol.replace("http", "ws") + host + (location.port ? ':' + location.port : ''));
       var room = client.join("state_handler");
 
+      var cameraPos = {x: 300, y: 300};
+      var maxDistCamera = 100;
+
       var players = {};
-      var colors = ['red', 'green', 'yellow', 'blue', 'cyan', 'magenta'];
+      var alpacas = [];
+      var decorations = [];
+
+      var keysPressed = {37: false, 38: false, 39: false, 40: false}
+
+      var alpacaImg;
+      var alpacaSize = 30;
+      var dogImg;
+      var dogSize = 50;
+      var grassImg;
+      var grassSize = 20;
+
+      var lastMovement = {x: 0, y: 0};
 
       room.onJoin.add(function() {
         // listen to patches coming from the server
         room.state.players.onAdd = function(player, sessionId) {
-          var dom = document.createElement("div");
-          dom.className = "player";
-          dom.style.left = player.x + "px";
-          dom.style.top = player.y + "px";
-          dom.style.background = colors[Math.floor(Math.random() * colors.length)];
-          dom.innerHTML = "Player " + sessionId;
-
-          players[sessionId] = dom;
-          document.body.appendChild(dom);
+          players[sessionId] = player;
         }
 
         room.state.players.onRemove = function(player, sessionId) {
-          document.body.removeChild(players[sessionId]);
           delete players[sessionId];
         }
 
         room.state.players.onChange = function (player, sessionId) {
-          var dom = players[sessionId];
-          dom.style.left = player.x + "px";
-          dom.style.top = player.y + "px";
+          players[sessionId] = player;
+        }
+
+        room.state.alpacas.onAdd = function(alpaca, sessionId) {
+          alpacas.push(alpaca);
+        }
+
+        room.state.decorations.onAdd = function(decoration, sessionId) {
+          decorations.push(decoration);
         }
       });
 
       window.addEventListener("keydown", function (e) {
-        console.log(e.which);
-        if (e.which === 38) {
-          up();
-
-        } else if (e.which === 39) {
-          right();
-
-        } else if (e.which === 40) {
-          down();
-
-        } else if (e.which === 37) {
-          left();
-        }
+        keysPressed[e.which] = true;
       });
 
-      function up () {
-        room.send({ y: -1 });
+      window.addEventListener("keyup", function (e) {
+        keysPressed[e.which] = false;
+      });
+
+      function setup() {
+        alpacaImg = loadImage('alpaca.png');
+        dogImg = loadImage('dog.png');
+        grassImg = loadImage('grass.png');
+
+        createCanvas(600, 600);
       }
 
-      function right () {
-        room.send({ x: 1 });
-      }
+      function draw() {
+        let direction = createVector(keysPressed[39] - keysPressed[37], keysPressed[40] - keysPressed[38]);
+        direction.normalize();
+        let movement = {x: direction.x, y: direction.y};
 
-      function down () {
-        room.send({ y: 1 })
-      }
+        if(movement.x != lastMovement.x || movement.y != lastMovement.y) {
+          room.send({
+            type: "set_player_movement",
+            payload: movement
+          });
+        }
+        lastMovement = movement;
 
-      function left () {
-        room.send({ x: -1 })
+        let curPlayer = players[room.sessionId];
+        if(curPlayer){
+          cameraPos.x = constrain(cameraPos.x, curPlayer.x - maxDistCamera, curPlayer.x + maxDistCamera);
+          cameraPos.y = constrain(cameraPos.y, curPlayer.y - maxDistCamera, curPlayer.y + maxDistCamera);
+        }
+
+        translate(- cameraPos.x + width / 2, - cameraPos.y + height / 2);
+        background(90, 190, 40);
+        decorations.forEach(decoration => {
+          imageMode(CENTER);
+          if(decoration.type == "grass")
+            image(grassImg, decoration.x, decoration.y, grassSize, grassSize / grassImg.width * grassImg.height);
+        });
+        alpacas.slice().sort(function(alpaca1, alpaca2){return alpaca1.y - alpaca2.y}).forEach(alpaca => {
+          imageMode(CENTER);
+          image(alpacaImg, alpaca.x, alpaca.y, alpacaSize, alpacaSize / alpacaImg.width * alpacaImg.height);
+        });
+        Object.keys(players).forEach(sessionId => {
+          let player = players[sessionId];
+          imageMode(CENTER);
+          image(dogImg, player.x, player.y, dogSize, dogSize / dogImg.width * dogImg.height);
+        });
       }
 
     </script>
