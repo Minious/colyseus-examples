@@ -32,14 +32,23 @@ export class Entity extends Schema {
 export abstract class MovingEntity extends Entity {
     movement: Vector = new Vector(0, 0);
 
-    abstract getSpeed(): number;
-
     @type(Vector)
-    speed: Vector;
+    velocity: Vector;
+
+    @type("number")
+    speed: number;
+
+    constructor() {
+        super();
+
+        this.speed = this.getSpeed();
+    }
 
     setMovement(movement: Vector){
         this.movement = movement;
     }
+
+    abstract getSpeed(): number;
 
     move (deltaTime: number) {
         if (this.movement.x) {
@@ -48,7 +57,7 @@ export abstract class MovingEntity extends Entity {
         if (this.movement.y) {
             this.pos.y += this.movement.y * this.getSpeed() * deltaTime;
         }
-        this.speed = new Vector(this.movement.x * this.getSpeed(), this.movement.y * this.getSpeed());
+        this.velocity = new Vector(this.movement.x * this.getSpeed(), this.movement.y * this.getSpeed());
     }
 }
 
@@ -170,8 +179,19 @@ export class State extends Schema {
         this.players[ id ].setMovement(movement);
     }
 
+    checkPlayerPosition (id: string, clientPosition: Vector) {
+        var player: Player = this.players[ id ];
+        var distance: number = new Vector(player.pos.x - clientPosition.x, player.pos.y - clientPosition.y).mag();
+        if(distance < 10){
+            player.pos.x = clientPosition.x;
+            player.pos.y = clientPosition.y;
+        } else {
+            console.log("Discrepency detected !")
+        }
+    }
+
     init() {
-        for(let i=0 ; i<10 ; i++) {
+        for(let i=0 ; i<1 ; i++) {
             this.alpacas.push(new Alpaca());
         }
         for(let i=0 ; i<100 ; i++) {
@@ -194,6 +214,12 @@ export class StateHandlerRoom extends Room<State> {
         this.setSimulationInterval((deltaTime) => this.update(deltaTime));
     }
 
+    requestJoin (options, isNewRoom: boolean) {
+        return (options.create)
+            ? (options.create && isNewRoom)
+            : this.clients.length > 0;
+    }
+
     onJoin (client) {
         this.state.createPlayer(client.sessionId);
     }
@@ -203,10 +229,14 @@ export class StateHandlerRoom extends Room<State> {
     }
 
     onMessage (client, data) {
-        console.log("StateHandlerRoom received message from", client.sessionId, ":", data);
+        //console.log("StateHandlerRoom received message from", client.sessionId, ":", data);
         switch(data.type) {
             case "set_player_movement":
                 this.state.setPlayerMovement(client.sessionId, data.payload);
+                break;
+            case "check_player_position":
+                var clientPosition: Vector = new Vector(data.payload.x, data.payload.y);
+                this.state.checkPlayerPosition(client.sessionId, clientPosition);
                 break;
         }
     }
