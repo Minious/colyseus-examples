@@ -1,6 +1,5 @@
 import { Room } from "colyseus";
 import { Schema, type, MapSchema, ArraySchema } from "@colyseus/schema";
-import { runInThisContext } from "vm";
 
 export class Vector extends Schema {
     @type("number")
@@ -27,34 +26,47 @@ export class Vector extends Schema {
 
 export class Entity extends Schema {
     @type(Vector)
-    pos: Vector = new Vector(Math.floor(Math.random() * 600), Math.floor(Math.random() * 600));
+    pos: Vector = new Vector(0, 0);
 }
 
-export class MovingEntity extends Entity {
-    static speed: number;
-
+export abstract class MovingEntity extends Entity {
     movement: Vector = new Vector(0, 0);
 
-    setMovement(movement){
+    abstract getSpeed(): number;
+
+    @type(Vector)
+    speed: Vector;
+
+    setMovement(movement: Vector){
         this.movement = movement;
     }
 
-    move (deltaTime) {
+    move (deltaTime: number) {
         if (this.movement.x) {
-            this.pos.x += this.movement.x * Player.speed * deltaTime;
+            this.pos.x += this.movement.x * this.getSpeed() * deltaTime;
         }
         if (this.movement.y) {
-            this.pos.y += this.movement.y * Player.speed * deltaTime;
+            this.pos.y += this.movement.y * this.getSpeed() * deltaTime;
         }
+        this.speed = new Vector(this.movement.x * this.getSpeed(), this.movement.y * this.getSpeed());
     }
 }
 
 export class Player extends MovingEntity {
     static playersColors: string[] = ['red', 'green', 'yellow', 'blue', 'cyan', 'magenta'];
-    static speed: number = 0.4;
 
     @type("string")
     color = Player.playersColors[Math.floor(Math.random() * Player.playersColors.length)];
+
+    constructor() {
+        super();
+
+        this.pos = new Vector(Math.floor(Math.random() * 600), Math.floor(Math.random() * 600));
+    }
+
+    getSpeed(): number {
+        return 0.4;
+    }
 }
 
 
@@ -63,20 +75,35 @@ export class Decoration extends Entity {
 
     @type("string")
     type = Decoration.decorationsTypes[Math.floor(Math.random() * Decoration.decorationsTypes.length)];
+
+    constructor() {
+        super();
+
+        this.pos = new Vector(Math.floor(Math.random() * 4000) - 2000, Math.floor(Math.random() * 4000) - 2000);
+    }
 }
 
 export class Alpaca extends MovingEntity {
     static alpacasColors: string[] = ['grey'];
-    static speed: number = 0.1;
 
-    @type("number")
-    dir: Vector = new Vector(this.pos.x, this.pos.y);
+    @type(Vector)
+    destination: Vector = new Vector(this.pos.x, this.pos.y);
 
     @type("string")
     color: string = Alpaca.alpacasColors[Math.floor(Math.random() * Alpaca.alpacasColors.length)];
 
     @type("number")
     timer: number = 0;
+
+    constructor() {
+        super();
+
+        this.pos = new Vector(Math.floor(Math.random() * 600), Math.floor(Math.random() * 600));
+    }
+
+    getSpeed(): number {
+        return 0.05;
+    }
 
     update (deltaTime, players: MapSchema<Player>) {
         this.timer -= deltaTime;
@@ -85,35 +112,35 @@ export class Alpaca extends MovingEntity {
         Object.keys(players).forEach(playerId => {
             var player: Player = players[playerId];
 
-            let dir: Vector = new Vector(this.pos.x - player.pos.x, this.pos.y - player.pos.y);
-            let dist: number = dir.mag();
+            let direction: Vector = new Vector(this.pos.x - player.pos.x, this.pos.y - player.pos.y);
+            let distance: number = direction.mag();
 
-            if(dist < 100) {
-                repulse.x += dir.x;
-                repulse.y += dir.y;
+            if(distance < 100) {
+                repulse.x += direction.x;
+                repulse.y += direction.y;
             }
         });
         if(repulse.x != 0 || repulse.y != 0) {
             this.movement = repulse.normalized();
-            this.dir.x = this.pos.x;
-            this.dir.y = this.pos.y;
+            this.destination.x = this.pos.x;
+            this.destination.y = this.pos.y;
         }
         else {
             if(this.timer <= 0) {
                 this.timer = (Math.random() * 5 + 5) * 1000;
                 let move = Math.floor(Math.random() * 2) == 0;
                 if(move) {
-                    this.dir.x = Math.floor(Math.random() * 600);
-                    this.dir.y = Math.floor(Math.random() * 600);
+                    this.destination.x = this.pos.x + Math.floor(Math.random() * 200) - 100;
+                    this.destination.y = this.pos.y + Math.floor(Math.random() * 200) - 100;
                 } else {
-                    this.dir.x = this.pos.x;
-                    this.dir.y = this.pos.y;
+                    this.destination.x = this.pos.x;
+                    this.destination.y = this.pos.y;
                 }
             }
 
-            let dir = new Vector(this.dir.x - this.pos.x, this.dir.y - this.pos.y);
-            if(dir.mag() > 5) {
-                this.movement = dir.normalized();
+            let direction: Vector = new Vector(this.destination.x - this.pos.x, this.destination.y - this.pos.y);
+            if(direction.mag() > 5) {
+                this.movement = direction.normalized();
             } else {
                 this.movement = new Vector(0, 0);
             }
@@ -156,6 +183,8 @@ export class State extends Schema {
 export class StateHandlerRoom extends Room<State> {
     onInit (options) {
         console.log("StateHandlerRoom created!", options);
+
+        this.setMetadata({roomName: options.roomName});
 
         let state = new State();
         state.init();

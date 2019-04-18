@@ -11,48 +11,91 @@
     <script type="text/javascript" src="colyseus.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.8.0/p5.js"></script>
 
-    <style type="text/css">
-      .player {
-        width: 100px;
-        height: 100px;
-        position: absolute;
-        padding-top: 24px;
-        box-sizing: border-box;
-        left: 0;
-        top: 0;
-      }
-    </style>
-
   </head>
   <body>
-    <!--
-    <h1>
-      <a href="https://github.com/gamestdio/colyseus-examples"><img src="https://rawgit.com/gamestdio/colyseus/master/media/header.png" height="100" alt="colyseus" /></a>
-    </h1>
-
-    <p>This example shows how to use custom data structures in your room's state.</p>
-
-    <strong>commands</strong><br>
-
-    <button onclick="up()">up</button>
-    <button onclick="down()">down</button>
-    <br />
-    <button onclick="left()">left</button>
-    <button onclick="right()">right</button>
-    -->
-
+    <div id="rooms_list"></div>
+    <button id="create_room"></button>
+    
     <script>
       var host = window.document.location.host.replace(/:.*/, '');
 
       var client = new Colyseus.Client(location.protocol.replace("http", "ws") + host + (location.port ? ':' + location.port : ''));
-      var room = client.join("state_handler");
 
-      var cameraPos = {x: 300, y: 300};
+      client.getAvailableRooms('state_handler', function(rooms, err) {
+        console.log(rooms);
+        rooms.forEach(room => {
+          console.log(room);
+          console.log(room.metadata);
+          var roomTag = document.createElement("p");
+          roomTag.innerHTML = room.metadata.roomName;
+          console.log(room.roomId);
+          roomTag.addEventListener("click", ev => {
+            console.log(room.roomId);
+            joinRoom(room.roomId);
+          });
+
+          document.getElementById("rooms_list").appendChild(roomTag);
+        });
+      });
+
+      document.getElementById("create_room").addEventListener("click", ev => {
+        joinRoom(null);
+      });
+
+      function joinRoom(roomId){
+        if(roomId)
+          room = client.join(roomId, {roomName: "zob" + Math.floor(Math.random() * 10000)});
+        else
+          room = client.join("state_handler", {roomName: "zob" + Math.floor(Math.random() * 10000)});
+
+        initGame();
+
+        room.onJoin.add(function() {
+          // listen to patches coming from the server
+          room.state.players.onAdd = function(player, sessionId) {
+            players[sessionId] = player;
+          }
+
+          room.state.players.onRemove = function(player, sessionId) {
+            delete players[sessionId];
+          }
+
+          room.state.players.onChange = function (player, sessionId) {
+            players[sessionId] = player;
+          }
+
+          room.state.alpacas.onAdd = function(alpaca, sessionId) {
+            alpacas.push(alpaca);
+          }
+
+          room.state.decorations.onAdd = function(decoration, sessionId) {
+            decorations.push(decoration);
+          }
+        });
+
+        gameStarted = true;
+        canvas.elt.style.display = "inline";
+        loop();
+      }
+
+      function initGame(){
+        cameraPos = {x: 300, y: 300};
+
+        players = {};
+        alpacas = [];
+        decorations = [];
+
+        lastMovement = {x: 0, y: 0}
+
+        lastMillis = millis();
+      }
+
+      var cameraPos;
       var maxDistCamera = 100;
 
-      var players = {};
-      var alpacas = [];
-      var decorations = [];
+      var players;
+      var alpacas;
+      var decorations;
 
       var keysPressed = {37: false, 38: false, 39: false, 40: false}
 
@@ -63,30 +106,13 @@
       var grassImg;
       var grassSize = 20;
 
-      var lastMovement = {x: 0, y: 0};
+      var lastMovement;
 
-      room.onJoin.add(function() {
-        // listen to patches coming from the server
-        room.state.players.onAdd = function(player, sessionId) {
-          players[sessionId] = player;
-        }
+      var lastMillis;
 
-        room.state.players.onRemove = function(player, sessionId) {
-          delete players[sessionId];
-        }
-
-        room.state.players.onChange = function (player, sessionId) {
-          players[sessionId] = player;
-        }
-
-        room.state.alpacas.onAdd = function(alpaca, sessionId) {
-          alpacas.push(alpaca);
-        }
-
-        room.state.decorations.onAdd = function(decoration, sessionId) {
-          decorations.push(decoration);
-        }
-      });
+      var canvas;
+      var gameStarted = false;
+      var room;
 
       window.addEventListener("keydown", function (e) {
         keysPressed[e.which] = true;
@@ -101,44 +127,66 @@
         dogImg = loadImage('dog.png');
         grassImg = loadImage('grass.png');
 
-        createCanvas(600, 600);
+        canvas = createCanvas(600, 600);
+        noLoop();
+
+        console.log(canvas)
+
+        canvas.elt.style.display = "none";
       }
 
       function draw() {
-        let direction = createVector(keysPressed[39] - keysPressed[37], keysPressed[40] - keysPressed[38]);
-        direction.normalize();
-        let movement = {x: direction.x, y: direction.y};
+        if(gameStarted){
+          elapsedTime = millis() - lastMillis;
+          lastMillis = millis();
 
-        if(movement.x != lastMovement.x || movement.y != lastMovement.y) {
-          room.send({
-            type: "set_player_movement",
-            payload: movement
+          alpacas.forEach(alpaca => {
+            if(alpaca.pos && alpaca.speed){
+              alpaca.pos.x += alpaca.speed.x * elapsedTime;
+              alpaca.pos.y += alpaca.speed.y * elapsedTime;
+            }
+          });
+          Object.keys(players).forEach(sessionId => {
+            let player = players[sessionId];
+            player.pos.x += player.speed.x * elapsedTime;
+            player.pos.y += player.speed.y * elapsedTime;
+          });
+
+          let direction = createVector(keysPressed[39] - keysPressed[37], keysPressed[40] - keysPressed[38]);
+          direction.normalize();
+          let movement = {x: direction.x, y: direction.y};
+
+          if(movement.x != lastMovement.x || movement.y != lastMovement.y) {
+            room.send({
+              type: "set_player_movement",
+              payload: movement
+            });
+          }
+          lastMovement = movement;
+
+          let curPlayer = players[room.sessionId];
+          if(curPlayer){
+            cameraPos.x = constrain(cameraPos.x, curPlayer.pos.x - maxDistCamera, curPlayer.pos.x + maxDistCamera);
+            cameraPos.y = constrain(cameraPos.y, curPlayer.pos.y - maxDistCamera, curPlayer.pos.y + maxDistCamera);
+          }
+
+          translate(- cameraPos.x + width / 2, - cameraPos.y + height / 2);
+          background(90, 190, 40);
+          decorations.forEach(decoration => {
+            imageMode(CENTER);
+            if(decoration.type == "grass")
+              image(grassImg, decoration.pos.x, decoration.pos.y, grassSize, grassSize / grassImg.width * grassImg.height);
+          });
+          alpacas.slice().sort(function(alpaca1, alpaca2){return alpaca1.pos.y - alpaca2.pos.y}).forEach(alpaca => {
+            imageMode(CENTER);
+            image(alpacaImg, alpaca.pos.x, alpaca.pos.y, alpacaSize, alpacaSize / alpacaImg.width * alpacaImg.height);
+          });
+          Object.keys(players).forEach(sessionId => {
+            let player = players[sessionId];
+            imageMode(CENTER);
+            image(dogImg, player.pos.x, player.pos.y, dogSize, dogSize / dogImg.width * dogImg.height);
           });
         }
-        lastMovement = movement;
-
-        let curPlayer = players[room.sessionId];
-        if(curPlayer){
-          cameraPos.x = constrain(cameraPos.x, curPlayer.x - maxDistCamera, curPlayer.x + maxDistCamera);
-          cameraPos.y = constrain(cameraPos.y, curPlayer.y - maxDistCamera, curPlayer.y + maxDistCamera);
-        }
-
-        translate(- cameraPos.x + width / 2, - cameraPos.y + height / 2);
-        background(90, 190, 40);
-        decorations.forEach(decoration => {
-          imageMode(CENTER);
-          if(decoration.type == "grass")
-            image(grassImg, decoration.x, decoration.y, grassSize, grassSize / grassImg.width * grassImg.height);
-        });
-        alpacas.slice().sort(function(alpaca1, alpaca2){return alpaca1.y - alpaca2.y}).forEach(alpaca => {
-          imageMode(CENTER);
-          image(alpacaImg, alpaca.x, alpaca.y, alpacaSize, alpacaSize / alpacaImg.width * alpacaImg.height);
-        });
-        Object.keys(players).forEach(sessionId => {
-          let player = players[sessionId];
-          imageMode(CENTER);
-          image(dogImg, player.x, player.y, dogSize, dogSize / dogImg.width * dogImg.height);
-        });
       }
 
     </script>
